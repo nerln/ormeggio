@@ -47,6 +47,9 @@ message is longer than your usual nights, it reads the end of every transcript
 that was active around the absence and gives Claude one paragraph: how long you
 were away, whether the machine restarted, which sessions stalled and why, which
 ones are waiting on you. Claude offers to resume them, and you say yes or no.
+On the machine it was built on, with 900 transcripts and 14 GB of them, an
+ordinary message costs the hook 0.05 seconds and the message that finds you
+back 0.65.
 
 Only your own messages count. The hook also fires for background notifications,
 for messages from other sessions, for scheduled runs and for `claude -p`
