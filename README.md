@@ -131,6 +131,12 @@ what is missing, copies the file first and says where the copy went.
 
 No dependencies past Python 3. The one macOS ships is enough.
 
+It costs about 173 tokens in every session, which is the skill announcing that
+it exists, and about 1,800 more when the skill runs. The hooks run in the
+harness and add nothing to the model's context, except the one paragraph on the
+day you come back. Numbers from `claude plugin details ormeggio@ormeggio`, not
+estimated by hand.
+
 ## What it reads
 
 - The end of each transcript under `~/.claude/projects` that changed around the
