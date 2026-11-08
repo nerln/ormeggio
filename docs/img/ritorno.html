@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<title>ormeggio, the return</title>
+<!--
+  The picture in the README and in the launch post. Invented data: the
+  sessions, the times and the questions are made up, so it carries nobody's
+  real work. Rendered at 1200 x 675 with:
+
+    chrome-headless-shell --headless --window-size=1200,675 \
+      --screenshot=ritorno.png file://$PWD/ritorno.html
+-->
+<style>
+  :root {
+    --paper: #f3efe6;
+    --card: #fffdf8;
+    --ink: #17282b;
+    --muted: #5d6d6f;
+    --sea: #0f6b73;
+    --sea-soft: #dcebe5;
+    --signal: #c4532f;
+    --amber: #a8741a;
+    --line: #e2dccf;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 1200px; height: 675px; overflow: hidden;
+    background: var(--paper); color: var(--ink);
+    font-family: "Avenir Next", Avenir, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: grid; grid-template-columns: 430px 1fr; gap: 56px;
+    padding: 64px 72px;
+  }
+  .left { display: flex; flex-direction: column; justify-content: space-between; }
+  .name { font-size: 30px; font-weight: 700; color: var(--sea); letter-spacing: -0.01em; }
+  h1 { font-size: 52px; line-height: 1.05; margin: 28px 0 0; letter-spacing: -0.02em; }
+  .lede { font-size: 22px; line-height: 1.45; color: var(--muted); margin: 22px 0 0; }
+  .foot { font-size: 18px; color: var(--muted); }
+  .foot b { color: var(--ink); font-weight: 600; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 22px;
+    padding: 34px 36px; box-shadow: 0 18px 40px rgba(15, 60, 64, .10);
+    display: flex; flex-direction: column; gap: 18px; align-self: center;
+  }
+  .who { font-size: 16px; color: var(--muted); }
+  .say { font-size: 23px; line-height: 1.4; margin: 0; }
+  .rows { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .row {
+    display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 14px;
+    padding: 12px 16px; border-radius: 12px; background: #f7f4ec; font-size: 19px;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .row small { font-size: 16px; color: var(--muted); }
+  .back { background: var(--sea-soft); }
+  .back .dot { background: var(--sea); }
+  .ask .dot { background: var(--amber); }
+  .fine .dot { background: #9fb3b1; }
+  .ask-line { font-size: 19px; color: var(--ink); margin: 2px 0 0; padding-left: 18px; border-left: 3px solid var(--amber); }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div>
+      <div class="name">ormeggio</div>
+      <h1>Away for two days. Back where you left off.</h1>
+      <p class="lede">The first message you send after a long break finds the sessions that stopped, says why, and starts them again.</p>
+    </div>
+    <p class="foot">A plugin for Claude Code<br><b>github.com/nerln/ormeggio</b></p>
+  </div>
+
+  <div class="card">
+    <div class="who">Your first message back, Sunday 10:14</div>
+    <p class="say">You were away 2 days 3 hours. The laptop restarted on Saturday, so its temporary files are gone. Of nine sessions:</p>
+    <div class="rows">
+      <div class="row back"><span class="dot"></span><span>Stopped, running again</span><small>4: limit, login, restart</small></div>
+      <div class="row ask"><span class="dot"></span><span>Waiting for an answer from you</span><small>2 questions</small></div>
+      <div class="row fine"><span class="dot"></span><span>Finished</span><small>3</small></div>
+    </div>
+    <p class="ask-line">1. Publish the new version of the invoice parser?</p>
+    <p class="ask-line">2. Which of the two cover images for the photo book?</p>
+  </div>
+</body>
+</html>

@@ -10,6 +10,11 @@ to the bottom.
 
 ormeggio does that reading for you, the moment you send your first message.
 
+![Coming back after two days: four stalled sessions running again, two questions waiting, three finished](docs/img/ritorno.png)
+
+(The picture is made from invented data by `docs/img/ritorno.html`, so it can be
+regenerated and carries nobody's real sessions.)
+
 ## What stops a session while you are away
 
 Each of these happened on one machine in the autumn of 2026, more than once.
