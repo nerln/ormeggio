@@ -1,0 +1,27 @@
+{
+  "description": "Two hooks. On UserPromptSubmit, note the time of every message a person sends, ignoring the ones that arrive from background tasks, other sessions and schedules. When the pause before a message is longer than the threshold, read the transcripts of the sessions that were working around the absence and hand Claude one paragraph: how long the user was away, whether the machine restarted, which sessions stalled and why, which ones ended with a question. In every other prompt it reads one small file and stays silent. On StopFailure, write down which session failed and with which error, so a usage limit or an expired login is known for certain rather than guessed from the transcript later.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/ormeggio/scripts/ormeggio.py\" hook prompt",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/ormeggio/scripts/ormeggio.py\" hook failure",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

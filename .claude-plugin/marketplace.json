@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ormeggio",
+  "description": "Come back after days away and find every session where you left it: the stalled ones resumed, the open questions in one place.",
+  "owner": {
+    "name": "Eugenio Nerelli",
+    "url": "https://github.com/nerln"
+  },
+  "plugins": [
+    {
+      "name": "ormeggio",
+      "description": "A hook that notices a long absence from your own rhythm, and a skill that resumes the sessions that stalled on a usage limit, an expired login, a restart or a tool left halfway, a dozen at a time after a memory check, with every open question gathered in one place.",
+      "category": "productivity",
+      "source": "./"
+    }
+  ]
+}
