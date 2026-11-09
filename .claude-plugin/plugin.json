@@ -1,6 +1,6 @@
 {
   "name": "ormeggio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Come back after days away and find every session where you left it. A hook notices that your last message was longer ago than your usual nights, reads the transcripts and tells Claude which sessions stalled on a usage limit, an expired login, a restart or a tool left halfway, and which ended with a question for you. The ormeggio skill resumes the stalled ones a dozen at a time after a memory check, and puts every open question in one place.",
   "author": {
     "name": "Eugenio Nerelli",

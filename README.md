@@ -52,10 +52,12 @@ ordinary message costs the hook 0.05 seconds and the message that finds you
 back 0.65.
 
 Only your own messages count. The hook also fires for background notifications,
-for messages from other sessions, for scheduled runs and for `claude -p`
-scripts, and its input has no field that says who typed. The transcript has
-one, so the hook looks the prompt up there before deciding. Without that, a
-night of agents talking to each other would look like you never left.
+for messages from other sessions, for scheduled runs, for `claude -p` scripts
+and for the line the desktop app sends by itself when a usage limit resets,
+and its input has no field that says who typed. The transcript has one, so the
+hook looks the prompt up there before deciding, and waits a moment for it when
+the line is not written yet. Without that, a night of agents talking to each
+other would look like you never left.
 
 **A second hook that writes down failures.** When a turn ends on an API error,
 Claude Code says which one. ormeggio keeps that line, so a usage limit or an
@@ -162,6 +164,11 @@ said yes.
 
 ## What it does not do
 
+It does not count sessions that were never yours to come back to: a `claude -p`
+run started from inside another session, anything running in a temporary
+folder, a session that only ran a slash command. More folders can be left out
+with `exclude_paths` in the settings.
+
 It does not resume a session you stopped yourself, an archived one, a scheduled
 one, or one that stopped on a request the API refused. A "carry on" message
 would only repeat the refusal, so those go in the list for you.
@@ -179,7 +186,7 @@ person at the keyboard.
 python3 tools/prova.py
 ```
 
-Ninety of them, about fifteen seconds, all against a throwaway Claude home
+A hundred and one of them, about twenty seconds, all against a throwaway Claude home
 built on the spot: a transcript written by hand for every way a session can
 stop, a fake app index, a fake clock, a fake boot time, and a fake `claude`
 binary for the terminal runner, which must never have more than its limit

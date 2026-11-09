@@ -30,7 +30,7 @@ try:
 except ImportError:  # pragma: no cover - not on macOS or Linux
     fcntl = None
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 # ---------------------------------------------------------------------------
 # Where things live
@@ -77,9 +77,12 @@ DEFAULTS = {
     # A command that serialises heavy jobs (builds, renders, local models).
     # "auto" looks for ~/.local/bin/pesante and mentions it if it exists.
     "heavy_queue": "auto",
-    # Language of the messages sent to sessions: "auto" follows your own last
-    # message, or "en", "it", "es".
+    # Language of the messages sent to sessions: "auto" follows the language
+    # of your own recent messages, or "en", "it", "es".
     "language": "auto",
+    # Extra folders whose sessions are never counted, as shell patterns such
+    # as "*/sandbox/*". Temporary folders are always left out.
+    "exclude_paths": [],
 }
 
 
@@ -291,6 +294,29 @@ AUTOMATED_PREFIXES = (
 )
 
 SDK_ENTRYPOINTS = ("sdk-cli", "sdk-py", "sdk-ts")
+
+# Folders where a session is a throwaway: a test run, a scratchpad. A session
+# the desktop app knows is always kept, wherever it runs.
+TEMP_PATTERNS = ("/private/tmp/*", "/tmp/*", "/private/var/folders/*", "/var/folders/*", "*/scratchpad/*")
+
+# Prompts the desktop app sends by itself, word for word, and a person never
+# types. They reach the hook before their transcript line is on disk.
+CANNED_PROMPTS = (
+    "i hit my usage limit while you were working",
+)
+
+BARE_COMMAND = re.compile(r"^\s*(<command-message>[^<]*</command-message>\s*)?<command-name>[^<]*</command-name>"
+                          r"(\s*<command-args>\s*</command-args>)?\s*$", re.S)
+
+
+def excluded_path(cwd, extra=()):
+    import fnmatch
+    if not cwd:
+        return False
+    import tempfile
+    patterns = list(TEMP_PATTERNS) + [os.path.join(tempfile.gettempdir(), "*")] + list(extra or ())
+    return any(fnmatch.fnmatch(cwd.rstrip("/") + "/", pat.rstrip("*") + "*") or fnmatch.fnmatch(cwd, pat)
+               for pat in patterns)
 SYSTEM_REMINDER = re.compile(r"^\s*<system-reminder>.*?</system-reminder>\s*", re.S)
 
 
@@ -318,7 +344,7 @@ def looks_automated(text):
     t = t.strip().lower()
     if not t:
         return True
-    return t.startswith(AUTOMATED_PREFIXES)
+    return t.startswith(AUTOMATED_PREFIXES) or t.startswith(CANNED_PROMPTS)
 
 
 def count_sdk():
@@ -680,7 +706,7 @@ def _last_paragraph(text):
     return parts[-1] if parts else ""
 
 
-def classify(path, app, failures, boot, at, absence_end=None):
+def classify(path, app, failures, boot, at, absence_end=None, extra_excluded=()):
     """What state a session was left in, read from the end of its transcript."""
     records, whole = read_tail(path, 600_000)
     conv = [r for r in records if r.get("type") in ("user", "assistant") and not r.get("isSidechain")]
@@ -710,10 +736,16 @@ def classify(path, app, failures, boot, at, absence_end=None):
         s["mtime"] = None
 
     typed_outside_sdk = False
+    entrypoints = set()
+    prompts = []
     for r in records:
         t = r.get("type")
         if t == "user" and r.get("entrypoint") and r.get("entrypoint") not in SDK_ENTRYPOINTS:
             typed_outside_sdk = True
+        if t in ("user", "assistant") and r.get("entrypoint"):
+            entrypoints.add(r["entrypoint"])
+        if t == "user" and is_human_record(r):
+            prompts.append(text_of((r.get("message") or {}).get("content")))
         if t == "custom-title" and r.get("customTitle"):
             s["title"] = s["title"] or r["customTitle"]
         elif t == "ai-title" and r.get("aiTitle") and not s["title"]:
@@ -752,6 +784,26 @@ def classify(path, app, failures, boot, at, absence_end=None):
     # somebody is waiting on.
     if not info and not typed_outside_sdk and s["entrypoint"] in SDK_ENTRYPOINTS:
         s["state"] = "automation"
+        return s
+    if not info:
+        # `claude -p` started from inside a desktop-app session inherits the
+        # app's entrypoint, so its transcript says claude-desktop, and the app
+        # has never heard of it: a test or a helper run, not a session.
+        if app and entrypoints and entrypoints <= {"claude-desktop", *SDK_ENTRYPOINTS}:
+            s["state"] = "automation"
+            s["detail"] = "a claude -p run started from inside an app session"
+            return s
+        if excluded_path(s["cwd"], extra_excluded):
+            s["state"] = "test"
+            s["detail"] = "runs in a temporary folder"
+            return s
+        if prompts and all(BARE_COMMAND.match(p or "") for p in prompts):
+            s["state"] = "test"
+            s["detail"] = "only a slash command, nothing asked"
+            return s
+    elif extra_excluded and excluded_path(s["cwd"], extra_excluded):
+        s["state"] = "test"
+        s["detail"] = "in a folder excluded in config.json"
         return s
     if absence_end and s["last_human"] and s["last_human"] >= absence_end - 120:
         s["state"] = "back_already"  # you have written to it since you came back
@@ -903,6 +955,7 @@ def scan_sessions(since, at=None, absence_end=None, exclude=(), absence_start=No
     at = at or now()
     app = load_app_index()
     sent = read_sent() if absence_end else {}
+    extra = load_config().get("exclude_paths") or ()
     failures = read_failures(since=since - 86400 if since else None)
     boot = boot_time()
     out = []
@@ -911,7 +964,7 @@ def scan_sessions(since, at=None, absence_end=None, exclude=(), absence_start=No
         if sid in exclude:
             continue
         try:
-            s = classify(path, app, failures, boot, at, absence_end)
+            s = classify(path, app, failures, boot, at, absence_end, extra)
         except (OSError, ValueError) as e:  # a transcript being written right now
             s = {"session_id": sid, "transcript": path, "state": "unreadable", "detail": str(e)}
         if s.get("app_id") and s["app_id"] in exclude:
@@ -952,17 +1005,85 @@ def absence_window(cfg, st=None, at=None):
 # ---------------------------------------------------------------------------
 # The message a stalled session receives
 
+LANG_WORDS = {
+    "it": {"che", "non", "di", "il", "lo", "per", "sono", "fai", "questo", "questa", "anche", "perché",
+           "voglio", "come", "cosa", "della", "delle", "degli", "nel", "nella", "più", "ho", "hai", "ma",
+           "se", "mi", "ti", "ci", "gli", "dei", "sul", "alla", "poi", "quando", "dove", "ancora", "tutto",
+           "tutte", "fatto", "fare", "deve", "puoi", "riprendi", "sessioni", "grazie", "allora", "ok"},
+    "es": {"que", "los", "las", "por", "para", "pero", "está", "quiero", "esto", "también", "como", "del",
+           "muy", "hay", "puedes", "eso", "sí", "cuando", "donde", "todo", "gracias", "hacer", "tengo"},
+    "en": {"the", "and", "you", "that", "this", "with", "for", "want", "please", "what", "is", "are", "it",
+           "to", "of", "from", "have", "can", "where", "when", "thanks", "should", "make"},
+}
+
+
+def recent_texts_from_transcripts(limit=20, days=7):
+    """Your own last messages, newest first, read from the transcripts.
+
+    Only lines the transcript marks as typed by a person count first (an origin
+    of "human", or a prompt typed in a terminal). Lines without an origin, from
+    older transcripts, are added only from sessions the app knows, and only if
+    the marked ones are too few: an unmarked line is as likely to be a script's
+    prompt as yours."""
+    strong, weak = [], []
+    since = now() - days * 86400
+    app = load_app_index()
+    for _m, path in transcripts(since):
+        sid = os.path.splitext(os.path.basename(path))[0]
+        try:
+            records, _ = read_tail(path, 1_000_000)
+        except OSError:
+            continue
+        for r in records:
+            if r.get("type") != "user" or r.get("isSidechain") or r.get("isMeta"):
+                continue
+            text = text_of((r.get("message") or {}).get("content"))
+            if not text.strip() or looks_automated(text):
+                continue
+            ts = record_ts(r) or 0
+            if r.get("turnOrigin") == "human" or r.get("promptSource") == "typed":
+                strong.append((ts, text))
+            elif "turnOrigin" not in r and sid in app and is_human_record(r):
+                weak.append((ts, text))
+        if len(strong) >= limit:
+            break
+    strong.sort(reverse=True)
+    weak.sort(reverse=True)
+    picked = strong[:limit]
+    if len(picked) < 5:
+        picked += weak[: limit - len(picked)]
+    return [t for _ts, t in picked]
+
+
+NOISE = re.compile(r"<(system-reminder|pasted_content|bash-input|bash-stdout|command-[a-z]+)[^>]*>.*?</\1>|"
+                   r"```.*?```|`[^`]*`|https?://\S+", re.S)
+
+
 def detect_language(cfg, sample=None):
+    """The language of your own recent messages, by counting common words.
+
+    One message is not enough: a short "ok", or a line the app sends by itself
+    in English, would decide for the whole return. So it counts over the last
+    messages you sent, kept by the hook, or read from the transcripts when the
+    hook has not seen enough of them yet."""
     lang = cfg.get("language", "auto")
     if lang in ("en", "it", "es"):
         return lang
-    text = (sample if sample is not None else read_state().get("last_human_text", "")).lower()
-    words = re.findall(r"[a-zàèéìòóùñ]+", text)
-    it = sum(w in {"che", "non", "di", "il", "per", "una", "sono", "fai", "questo", "anche", "perché", "voglio"} for w in words)
-    es = sum(w in {"que", "los", "las", "una", "por", "para", "pero", "está", "quiero", "esto", "también"} for w in words)
-    en = sum(w in {"the", "and", "you", "that", "this", "with", "for", "want", "please", "what"} for w in words)
-    best = max((it, "it"), (es, "es"), (en, "en"))
-    return best[1] if best[0] > 0 else "en"
+    if sample is not None:
+        texts = [sample]
+    else:
+        texts = list(read_state().get("recent_human_texts") or [])
+        if len(texts) < 5:
+            texts += recent_texts_from_transcripts()
+    score = {k: 0 for k in LANG_WORDS}
+    for text in texts:
+        if looks_automated(text or ""):
+            continue
+        words = re.findall(r"[a-zàèéìòóùñ]+", NOISE.sub(" ", text or "").lower())
+        for k, vocab in LANG_WORDS.items():
+            score[k] += sum(w in vocab for w in words)
+    best = max(score.items(), key=lambda kv: (kv[1], kv[0] == "en"))  # stylecheck: allow
+    return best[0] if best[1] > 0 else "en"
 
 
 MESSAGES = {
@@ -1400,22 +1521,39 @@ def prompt_is_human(inp):
     path = inp.get("transcript_path")
     pid = inp.get("prompt_id")
     if path and os.path.exists(path):
-        try:
-            records, _ = read_tail(path, 300_000)
-        except OSError:
-            records = []
-        users = [r for r in records if r.get("type") == "user" and not r.get("isSidechain")
-                 and not has_tool_result((r.get("message") or {}).get("content"))]
-        match = None
-        if pid:
-            match = next((r for r in reversed(users) if r.get("promptId") == pid), None)
-        if match is None and prompt.strip():
-            p = prompt.strip()
-            match = next((r for r in reversed(users)
-                          if text_of((r.get("message") or {}).get("content")).strip() == p), None)
-        if match is not None:
-            return is_human_record(match)
+        # The line for this prompt is sometimes written a moment after the
+        # hook starts. A prompt the app sent by itself then looked typed, and
+        # reset the clock in the middle of an absence. So look a few times.
+        tries = int(os.environ.get("ORMEGGIO_LOOKUP_TRIES", "4"))
+        for attempt in range(max(1, tries)):
+            match = _find_prompt_record(path, pid, prompt)
+            if match is not None:
+                return is_human_record(match)
+            if attempt < tries - 1:
+                time.sleep(0.15)
     return bool(prompt.strip()) and not looks_automated(prompt)
+
+
+def _find_prompt_record(path, pid, prompt):
+    try:
+        records, _ = read_tail(path, 300_000)
+    except OSError:
+        return None
+    users = [r for r in records if r.get("type") == "user" and not r.get("isSidechain")
+             and not has_tool_result((r.get("message") or {}).get("content"))]
+    if pid:
+        match = next((r for r in reversed(users) if r.get("promptId") == pid), None)
+        if match is not None:
+            return match
+    p = prompt.strip()
+    if not p:
+        return None
+    # By text only among the last few minutes, so an identical older prompt
+    # (an "ok", a canned line) is not taken for this one.
+    recent = time.time() - 180
+    return next((r for r in reversed(users)
+                 if (record_ts(r) or 0) >= recent
+                 and text_of((r.get("message") or {}).get("content")).strip() == p), None)
 
 
 def last_human_from_transcripts(exclude_session=None, days=30):
@@ -1457,6 +1595,11 @@ def hook_prompt():
         st["last_human_at"] = at
         st["last_human_session"] = sid
         st["last_human_text"] = (inp.get("prompt") or "")[:400]
+        recent = [t for t in (st.get("recent_human_texts") or []) if isinstance(t, str)]
+        text = (inp.get("prompt") or "").strip()
+        if len(text.split()) >= 3:
+            recent = ([text[:300]] + recent)[:15]
+        st["recent_human_texts"] = recent
         gap = at - last if last else 0
         returning = bool(last) and gap >= float(cfg["threshold_hours"]) * 3600
         if returning:

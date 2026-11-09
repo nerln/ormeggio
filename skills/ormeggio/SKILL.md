@@ -47,6 +47,10 @@ memory, how many sessions are working right now, and the sessions sorted into:
 - `waiting_for_you`: finished with a question for the user, with the question
 - `stopped_by_you`, `done`, `running`, `resumed_already`: left alone
 
+Runs that were never the user's sessions are already out of every list: a
+`claude -p` started from inside another session, anything in a temporary
+folder or a scratchpad, a session that only ran a slash command.
+
 Each entry has the transcript `session_id`, the desktop app's `app_id` when
 there is one, the `cwd`, the cause and a `resume_command` for a terminal.
 
@@ -172,7 +176,8 @@ finished: the report says "sent", not "done".
 | `min_free_memory_pct` | 30 | no new wave below this |
 | `on_return` | `propose` | `run` resumes without asking first |
 | `heavy_queue` | `auto` | command that serialises heavy jobs |
-| `language` | `auto` | language of the resume messages |
+| `language` | `auto` | language of the resume messages; `auto` follows the user's recent messages |
+| `exclude_paths` | `[]` | more folders whose sessions are never counted, as shell patterns |
 
 `ORMEGGIO threshold` measures the user's own pauses in their transcripts and
 suggests a threshold; `ORMEGGIO threshold --save` writes it. `ORMEGGIO status`

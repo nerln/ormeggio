@@ -34,6 +34,17 @@ def iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + ".000Z"
 
 
+REGISTER = object()
+
+
+def typed(ts, text, **kw):
+    """A prompt typed in an interactive terminal session."""
+    r = {"type": "user", "timestamp": iso(ts), "entrypoint": "cli", "promptSource": "typed",
+         "message": {"role": "user", "content": text}, "permissionMode": "default"}
+    r.update(kw)
+    return r
+
+
 class Home:
     """A fake Claude home with a projects folder and an app index."""
 
@@ -68,8 +79,10 @@ class Home:
                            text=True, env=self.env(**extra), timeout=60)
         return p
 
-    def session(self, records, project="-Users-x-dev-proj", sid=None, cwd="/tmp", mtime_ago=2 * 86400,
-                title=None, app=None):
+    def session(self, records, project="-Users-x-dev-proj", sid=None, cwd="/Users/x/dev/proj", mtime_ago=2 * 86400,
+                title=None, app=REGISTER):
+        """A transcript. Like in the real app, every desktop session is in the
+        app's index unless app=None says it is not."""
         sid = sid or str(uuid.uuid4())
         folder = os.path.join(self.projects, project)
         os.makedirs(folder, exist_ok=True)
@@ -85,9 +98,11 @@ class Home:
                 fh.write(json.dumps(r) + "\n")
         t = self.now - mtime_ago
         os.utime(path, (t, t))
+        if app is REGISTER:
+            app = {}
         if app is not None:
             info = {"sessionId": "local_" + sid, "cliSessionId": sid, "cwd": cwd, "title": title or sid[:8],
-                    "isArchived": False, "permissionMode": "acceptEdits"}
+                    "isArchived": False}
             info.update(app)
             with open(os.path.join(self.app, "local_" + sid + ".json"), "w") as fh:
                 json.dump(info, fh)
@@ -149,7 +164,7 @@ def build_fleet(h):
     s["limit"] = h.session([human(t0 - 3600, "porta avanti il backlog"), tool(t0 - 3500, "Bash", {}, "t1"),
                             result(t0 - 3400, "t1"),
                             api_error(t0 + 7200, "rate_limit", "You've hit your 5-hour limit · resets 8:20pm")],
-                           title="Limite", app={})
+                           title="Limite", app={"permissionMode": "acceptEdits"})
     s["login"] = h.session([human(t0 - 3600, "vai"),
                             api_error(t0 + 3600, "authentication_failed",
                                       "Failed to authenticate. API Error: 401 OAuth access token has expired")],
@@ -202,9 +217,25 @@ def build_fleet(h):
                              title="Al lavoro", mtime_ago=30)
     s["peer_last"] = h.session([human(t0 - 3600, "vai"), say(after + 100, "Fatto."), peer(after + 900)],
                                title="Messaggio non letto")
+    s["spawned"] = h.session([human(t0 - 3600, "Rientro ora. Una riga sola: cosa ti ha detto?", origin=None),
+                              say(t0 - 3500, "Vuoi che lanci /ormeggio?")],
+                             title="Prova lanciata da dentro l'app", app=None)
+    s["tmp_cli"] = h.session([typed(t0 - 3600, "prova il plugin"), tool(t0 + 100, "Bash", {}, "tt1")],
+                             title="Terminale in una cartella temporanea", cwd="/private/tmp/prova", app=None)
+    s["bare_cmd"] = h.session([typed(t0 - 3600, "<command-message>plancia:briefing</command-message>\n"
+                                     "<command-name>/plancia:briefing</command-name>"),
+                               say(t0 - 3500, "Lego questa cartella al progetto?")],
+                              title="Solo un comando", app=None)
+    s["real_cli"] = h.session([typed(t0 - 3600, "porta avanti la migrazione"), tool(t0 + 200, "Bash", {}, "tt2")],
+                              title="Terminale vero", app=None)
+    s["copie"] = h.session([human(t0 - 3600, "continua col negozio"), tool(t0 + 300, "Bash", {}, "tt3")],
+                           title="Sessione vera in una copia", cwd="/Volumes/x/dev/picco-copie/L6-NEGOZIO")
+    s["sandbox"] = h.session([human(t0 - 3600, "prova"), tool(t0 + 300, "Bash", {}, "tt4")],
+                             title="Cartella esclusa a mano", cwd="/Users/x/sandbox/uno")
     s["script"] = h.session([dict(human(t0 + 600, "Scrivi il riepilogo della giornata"), entrypoint="sdk-cli",
                                   turnOrigin=None),
-                             say(t0 + 700, "Vuoi che lo legga ad alta voce?")], title="Riepilogo automatico")
+                             say(t0 + 700, "Vuoi che lo legga ad alta voce?")], title="Riepilogo automatico",
+                            app=None)
     return t0, s
 
 
@@ -248,6 +279,21 @@ def test_classification(h, t0):
         check(f"{title}: {state}{' / ' + cause if cause else ''}", ok,
               f"got {s and (s['state'], s.get('cause'), s.get('resume'))}")
     check("a session that stalled before the window is left out", "Vecchia" not in got)
+    for title, state in (("Prova lanciata da dentro l'app", "automation"),
+                         ("Terminale in una cartella temporanea", "test"),
+                         ("Solo un comando", "test"),
+                         ("Terminale vero", "interrupted"),
+                         ("Sessione vera in una copia", "interrupted"),
+                         ("Cartella esclusa a mano", "interrupted")):
+        x = got.get(title) or {}
+        check(f"{title}: {state}", x.get("state") == state, str((x.get("state"), x.get("detail"))))
+    with open(os.path.join(h.data, "config.json"), "w") as fh:
+        json.dump({"exclude_paths": ["*/sandbox/*"]}, fh)
+    p3 = h.run("sessions", "--json", "--all", "--since", str(t0 - 86400), ORMEGGIO_BOOT=boot)
+    x = by_title(json.loads(p3.stdout)["sessions"]).get("Cartella esclusa a mano") or {}
+    check("a folder listed in exclude_paths is left out, even for an app session", x.get("state") == "test",
+          str(x.get("state")))
+    os.remove(os.path.join(h.data, "config.json"))
     p2 = h.run("sessions", "--json", "--all", "--since", str(t0 - 86400), ORMEGGIO_COUNT_SDK=1)
     auto = by_title(json.loads(p2.stdout)["sessions"]).get("Riepilogo automatico") or {}
     check("a claude -p script's run is an automation, even when -p prompts count as a person",
@@ -311,6 +357,32 @@ def test_hook(h, t0):
     check("a prompt the transcript records as typed by a person counts, whatever it says",
           '"additionalContext"' in p.stdout, p.stdout[:200] + p.stderr[-200:])
 
+    canned = ("I hit my usage limit while you were working, but it has reset now. "
+              "Please continue from where you left off.")
+    before = json.load(open(os.path.join(h.data, "stato.json")))["last_human_at"]
+    p = h.run("hook", "prompt", stdin=json.dumps({"session_id": sid, "prompt": canned}), ORMEGGIO_NOW=later + 86400)
+    st2 = json.load(open(os.path.join(h.data, "stato.json")))
+    check("the line the app sends after a usage limit: silent, and the clock is not reset",
+          p.stdout.strip() == "" and st2["last_human_at"] == before, p.stdout[:200])
+
+    # The line for the prompt reaches the transcript a moment after the hook
+    # starts: the hook has to wait for it instead of trusting the text.
+    tp2 = os.path.join(h.root, "late.jsonl")
+    open(tp2, "w").close()
+    proc = subprocess.Popen([sys.executable, SCRIPT, "hook", "prompt"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, text=True, env=h.env(ORMEGGIO_NOW=later + 86400))
+    proc.stdin.write(json.dumps({"session_id": sid, "prompt": "continua pure da dove eri",
+                                 "transcript_path": tp2, "prompt_id": "p-late"}))
+    proc.stdin.close()
+    time.sleep(0.2)
+    with open(tp2, "a") as fh:
+        fh.write(json.dumps(human(time.time(), "continua pure da dove eri", origin="sdk", promptId="p-late")) + "\n")
+    out = proc.stdout.read()
+    proc.wait(timeout=30)
+    st2 = json.load(open(os.path.join(h.data, "stato.json")))
+    check("a line written 0.2 s after the hook started is still read, and decides",
+          out.strip() == "" and st2["last_human_at"] == before, out[:200])
+
     p = h.run("hook", "prompt", stdin=json.dumps({"session_id": sid, "prompt": "ciao"}),
               ORMEGGIO_NOW=h.now + 50 * 3600, ORMEGGIO_THRESHOLD_HOURS=40)
     check("under a threshold of 40 h, a 20 h pause is silent", p.stdout.strip() == "", p.stdout[:200])
@@ -352,7 +424,7 @@ def test_plan(h, t0):
     total = len(plan["first_wave"]) + len(plan["later_waves"])
     check("the running session takes one of the four places",
           plan["running_now"] == 1 and len(plan["first_wave"]) == 3, json.dumps(plan)[:300])
-    check("the rest wait for a later wave", total == 8, f"total {total}")
+    check("the rest wait for a later wave", total == 11, f"total {total}")
     check("the refused request needs the user", [b["title"] for b in plan["need_review"]] == ["Bloccata"])
     check("all three questions are listed", sorted(b["title"] for b in plan["waiting_for_you"]) ==
           sorted(["Domande in un dialogo", "Domanda nel riquadro", "Domanda nel testo"]))
@@ -382,6 +454,32 @@ def test_messages(h, t0):
     m = h.run("message", FLEET["limit"]).stdout
     check("a configured queue for heavy jobs is named", fake_queue in m and "Pick up where you were" in m, m[:300])
     os.remove(os.path.join(h.data, "config.json"))
+
+
+def test_language(h):
+    print("\nlanguage of the messages")
+    import ormeggio
+    st_path = os.path.join(h.data, "stato.json")
+    saved = open(st_path).read()
+    st = json.loads(saved)
+    st["last_human_text"] = "I hit my usage limit while you were working, but it has reset now."
+    st["recent_human_texts"] = [
+        "sto proprio messo male di spazio sul mac, ma non sono sicuro che si possa risolvere",
+        "ok ora ho iterato sulla metodologia, voglio che catturi le modifiche che ho fatto",
+        "<pasted_content id=\"x\">Your request has been closed. Thank you for the application and the time</pasted_content>",
+        "https://example.com/a https://example.com/b",
+        "sì, fai ripartire tutte le sessioni che si sono fermate",
+    ]
+    with open(st_path, "w") as fh:
+        json.dump(st, fh)
+    m = h.run("message", FLEET["limit"]).stdout
+    check("several Italian messages outweigh an English line the app sent and a pasted English text",
+          "Riprendi da dove eri" in m, m[:120])
+    check("pasted text, links and tags do not count as words",
+          ormeggio.detect_language({"language": "auto"}, sample="<pasted_content>the and you that this with</pasted_content> "
+                                   "https://the.and/you voglio che sia fatto") == "it")
+    with open(st_path, "w") as fh:
+        fh.write(saved)
 
 
 def test_questions(h):
@@ -524,6 +622,7 @@ def main():
         test_hook(h, t0)
         test_plan(h, t0)
         test_messages(h, t0)
+        test_language(h)
         test_questions(h)
         test_relaunch(h, t0)
         test_manifest()
