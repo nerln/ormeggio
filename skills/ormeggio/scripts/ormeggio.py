@@ -30,7 +30,7 @@ try:
 except ImportError:  # pragma: no cover - not on macOS or Linux
     fcntl = None
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 # ---------------------------------------------------------------------------
 # Where things live
@@ -1089,6 +1089,7 @@ def detect_language(cfg, sample=None):
 MESSAGES = {
     "it": {
         "intro": "Messaggio di ormeggio: chi lavora con te è tornato dopo {away} di assenza.",
+        "away_unknown": "un po' di tempo",
         "stop": "Ti eri fermata {when}, per {cause}.",
         "ask": "Riprendi da dove eri. Prima controlla cosa è rimasto su disco (git status, file a metà, "
                "lock rimasti, lavori in background che non hanno mai risposto) e non rifare ciò che "
@@ -1103,6 +1104,7 @@ MESSAGES = {
     },
     "es": {
         "intro": "Mensaje de ormeggio: la persona con la que trabajas ha vuelto tras {away} fuera.",
+        "away_unknown": "un tiempo",
         "stop": "Te detuviste {when}, por {cause}.",
         "ask": "Retoma donde lo dejaste. Antes revisa qué quedó en disco (git status, archivos a medias, "
                "locks, trabajos en segundo plano que nunca respondieron) y no repitas lo ya hecho: "
@@ -1117,6 +1119,7 @@ MESSAGES = {
     },
     "en": {
         "intro": "Message from ormeggio: the person you work with is back after {away} away.",
+        "away_unknown": "a while",
         "stop": "You stopped {when}, because of {cause}.",
         "ask": "Pick up where you were. First check what was left on disk (git status, half-written "
                "files, leftover locks, background jobs that never reported back) and do not redo what "
@@ -1150,20 +1153,50 @@ CAUSE_SHORT = {
 }
 
 
+def span_in(seconds, lang):
+    seconds = max(0, int(seconds))
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    units = {"it": ("giorni", "giorno", "ore", "ora", "minuti"),
+             "es": ("días", "día", "horas", "hora", "minutos"),
+             "en": ("days", "day", "hours", "hour", "minutes")}[lang]
+    days = f"{d} {units[0] if d != 1 else units[1]}"
+    hours = f"{h} {units[2] if h != 1 else units[3]}"
+    joiner = {"it": " e ", "es": " y ", "en": " and "}[lang]
+    if d:
+        return days + (joiner + hours if h else "")
+    if h:
+        return hours
+    return f"{m} {units[4]}"
+
+
+def when_in(ts, lang):
+    """A moment in the words of the message: "il 08/11 alle 23:46"."""
+    if ts is None:
+        return "?"
+    d = dt.datetime.fromtimestamp(ts)
+    if lang == "it":
+        return d.strftime("il %d/%m alle %H:%M")
+    if lang == "es":
+        return d.strftime("el %d/%m a las %H:%M")
+    return d.strftime("on %a %d %b at %H:%M")
+
+
 def resume_message(s, cfg, st=None, at=None):
     st = st if st is not None else read_state()
     at = at or now()
     lang = detect_language(cfg)
     m = MESSAGES[lang]
     ab = st.get("absence") or {}
-    away = span((ab.get("to") or at) - (ab.get("from") or at)) if ab.get("from") else "a while"
+    away = span_in((ab.get("to") or at) - ab["from"], lang) if ab.get("from") else m["away_unknown"]
     cause = s.get("cause") or "turn_unfinished"
     cause_txt = CAUSE_SHORT.get(lang, {}).get(cause) or CAUSE_TEXT.get(cause, cause)
-    when = local(s.get("last_activity"))
+    when = when_in(s.get("last_activity"), lang)
     parts = [m["intro"].format(away=away), m["stop"].format(when=when, cause=cause_txt), m["ask"]]
     boot = boot_time()
     if boot and s.get("last_activity") and s["last_activity"] < boot <= at:
-        parts.append(m["reboot"].format(boot=local(boot)))
+        parts.append(m["reboot"].format(boot=when_in(boot, lang)))
     q = heavy_queue(cfg)
     parts.append(m["heavy"].format(queue=q) if q else m["heavy_generic"])
     if cause == "usage_limit":

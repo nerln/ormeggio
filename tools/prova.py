@@ -446,6 +446,8 @@ def test_messages(h, t0):
     check("in the user's language", "Riprendi da dove eri" in m, m[:200])
     check("it asks to check the disk and not duplicate", "doppioni" in m and "disco" in m)
     check("it names the restart and /private/tmp", "/private/tmp" in m)
+    check("durations and dates are written in the message's language",
+          "3 giorni" in m and " alle " in m and "Sun" not in m and " d " not in m, m[:260])
     m = h.run("message", FLEET["limit"]).stdout
     check("after a usage limit, it says to stop if the limit is still used up", "limite d'uso" in m)
     fake_queue = os.path.join(h.root, "coda")

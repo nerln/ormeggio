@@ -186,7 +186,7 @@ person at the keyboard.
 python3 tools/prova.py
 ```
 
-A hundred and one of them, about twenty seconds, all against a throwaway Claude home
+A hundred and two of them, about twenty seconds, all against a throwaway Claude home
 built on the spot: a transcript written by hand for every way a session can
 stop, a fake app index, a fake clock, a fake boot time, and a fake `claude`
 binary for the terminal runner, which must never have more than its limit
